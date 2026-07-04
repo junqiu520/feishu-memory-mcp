@@ -1,0 +1,28 @@
+.env
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Local cache + indexes (rebuildable via `feishu-memory migrate`)
+.feishu_memory/
+
+# Hugging Face model cache (downloaded on first embed)
+.hf_cache/
+
+# Test caches and artefacts
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.test_e2e_data/
+.test_mcp_data/
+.test_update_data/
+
+# One-off debug / E2E scripts (not part of the project)
+.debug_*.py
+.download_*.py
+.e2e_*.py
+.filter-callback.py
+.show_runs.py

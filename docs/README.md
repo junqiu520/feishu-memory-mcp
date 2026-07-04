@@ -1,0 +1,5 @@
+- [Installation](installation.md) — first-time setup, lark-cli install, env setup
+- [Deployment](deployment.md) — full deployment guide for real-world use
+- [Architecture](architecture.md) — how the pieces fit together
+- [Tool reference](tool-reference.md) — every MCP tool documented
+- [Operations](operations.md) — sync strategies, rebuild, troubleshooting

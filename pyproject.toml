@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "feishu-memory-mcp"
+version = "0.1.0"
+description = "MCP server for Feishu-backed RAG memory"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "junqiu" }
+]
+
+dependencies = [
+    "fastmcp>=0.5",
+    # NOTE: removed lark-oapi (now using lark-cli subprocess)
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sentence-transformers>=3.0",
+    "lancedb>=0.5",
+    "langchain-text-splitters>=0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+feishu-memory = "mcp_memory.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_memory"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+markers = [
+    "live: live E2E tests against real Feishu; require env vars; run with -m live",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
