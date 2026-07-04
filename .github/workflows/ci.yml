@@ -14,7 +14,7 @@ concurrency:
 env:
   # Skip live E2E tests in CI; they require real Feishu credentials.
   # They can be run manually via `pytest -m live tests/feishu/test_bitable_live.py`
-  PYTEST_DISABLE_LIVE=1
+  PYTEST_DISABLE_LIVE: "1"
 
 jobs:
   test:
