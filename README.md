@@ -13,12 +13,12 @@
 
 | Scope | 用途 | 谁来写 | 谁来读 |
 |-------|------|--------|--------|
-| **`memory`** | agent 的长期记忆（对话片段、agent 自动 add 的内容、解析后的资料）| **agent** | 全部 agent + 你 |
-| **`knowledge`** | 你的个人知识库（笔记、规范、文档）| **你**（或 lark-ui 录入）| agent 可消费 |
+| **`memory`** | agent 的长期记忆（对话片段、agent 自动 add 的内容、解析后的资料）| **agent** | agent + 你 |
+| **`knowledge`** | 你的个人知识库（笔记、规范、文档）| **你**（或 agent辅助录入）| agent + 你 |
 
 两库都用飞书多维表格做持久化 + 本地 SQLite + LanceDB 做查询缓存，agent 通过 9 个 MCP 工具读写。
 
-## 5 分钟跑起来
+## 快速安装
 
 ```bash
 # 1. 装 Python 包
@@ -30,7 +30,12 @@ feishu-memory install-deps
 # 3. lark-cli OAuth 授权（会打开浏览器）
 lark-cli config init
 
-# 4. 配环境变量
+# 4. 在飞书 UI 创建 2 个**空的**多维表格（memory / knowledge 各一个）
+#    这一步必须手动：飞书不开放「创建空 Bitable」的 API，需要人去
+#    https://open.feishu.cn/base 点几下创建。记下每个表的 app_token
+#    和 table_id。
+
+# 5. 配环境变量
 export FEISHU_APP_ID=cli_xxxxxxxxxxxx
 export FEISHU_APP_SECRET=...
 export MEMORY_BITABLE_APP_TOKEN=bascnxxxxxxxxxxxx
@@ -38,13 +43,14 @@ export MEMORY_BITABLE_TABLE_ID=tblxxxxxxxxxxxxxxxx
 export KNOWLEDGE_BITABLE_APP_TOKEN=bascnyyyyyyyyyyyy
 export KNOWLEDGE_BITABLE_TABLE_ID=tblyyyyyyyyyyyyy
 
-# 5. 验证
-feishu-memory doctor   # 6/6 检查过
-feishu-memory sync     # 第一次拉飞书 Bitable 数据
-feishu-memory serve    # 启动 MCP server（agent 客户端连）
+# 6. 自动建表（16 个字段一次性创建）+ 验证
+feishu-memory init      # 自动建表（不需要手动加字段）
+feishu-memory doctor    # 6/6 检查过
+feishu-memory sync      # 第一次拉飞书 Bitable 数据
+feishu-memory serve     # 启动 MCP server（agent 客户端连）
 ```
 
-第 4 步需要你在飞书 UI 提前创建 2 个多维表格（每个 16 字段），详细字段表见 [docs/deployment.md](docs/deployment.md)。
+`init` 会自动调用 `ensure_bitable_schema()` 创建全部 16 个字段，所以**用户不需要在飞书 UI 手动加字段**。字段定义见 [docs/deployment.md](docs/deployment.md)。
 
 ## 给 agent 用：9 个 MCP 工具
 
