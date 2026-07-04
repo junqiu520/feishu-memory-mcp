@@ -91,62 +91,6 @@ Get the app credentials from <https://open.feishu.cn/app>. The two
 Bitable tokens come from the URLs of the Bitables you create for
 memory and knowledge, respectively.
 
-## 4.5 Embedding model selection
-
-`feishu-memory-mcp` uses `sentence-transformers` for embedding. The
-default is the **smallest, fastest** model that still works for our
-retrieval use case, so the project is runnable out of the box on any
-machine. For production / best quality, swap to a larger model.
-
-| Model | Size | Dim | Quality | First download | Notes |
-|-------|------|-----|---------|----------------|-------|
-| `sentence-transformers/all-MiniLM-L6-v2` (default) | 80MB | 384 | OK | ~30s | English-focused; works without HF_TOKEN |
-| `BAAI/bge-small-en-v1.5` | 33MB | 384 | Good | ~15s | English-only, faster than MiniLM |
-| `BAAI/bge-m3` | 2.3GB | 1024 | **Best** (multilingual) | ~30+ min unauthenticated, ~5 min with `HF_TOKEN` | Recommended for Chinese / multilingual memory |
-| `BAAI/bge-large-en-v1.5` | 1.3GB | 1024 | Excellent (English) | ~10 min unauth | Large English |
-| `intfloat/multilingual-e5-base` | 1GB | 768 | Strong multilingual | ~5 min with `HF_TOKEN` | Good Chinese/English balance |
-
-### Switching the embedding model
-
-Set the model name in `.env` (or `Config` directly):
-
-```bash
-# .env
-EMBEDDING_MODEL=BAAI/bge-m3
-```
-
-Then restart `feishu-memory serve` so the model loads fresh. The
-local cache (`local_cache_*.sqlite`) and the LanceDB vector index
-(`vectors_*.lance`) **must be re-synced** after switching model because
-the embedding dimension changes — running `feishu-memory migrate`
-will wipe local and re-sync from Bitable.
-
-### Speeding up downloads with HF_TOKEN
-
-Anonymous requests to `huggingface.co` are rate-limited (~50 KB/s
-on the public hub, often hangs on large model weights). To go 5–10×
-faster, get a free read-only token from
-<https://huggingface.co/settings/tokens> and set:
-
-```bash
-# Linux / macOS
-export HF_TOKEN=hf_xxxxxxxxxxxx
-
-# Windows PowerShell
-$env:HF_TOKEN = "hf_xxxxxxxxxxxx"
-```
-
-The token is read by `huggingface_hub` at first model load. No code
-changes needed.
-
-### Embedding dimension and local cache compatibility
-
-Different models produce different dimensions. The local LanceDB index
-stores embeddings as `list[float32(N)`, so when you switch to a model
-with a different `N` you must run `feishu-memory migrate` to clear the
-old index. The Bitable records themselves are model-agnostic — only
-the local vector store is dimension-sensitive.
-
 ## 5. Verify
 
 ```bash

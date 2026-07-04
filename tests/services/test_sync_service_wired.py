@@ -4,6 +4,8 @@ SyncService now actually calls BitableClient.list_records, builds local
 MemoryRecord objects, embeds text via EmbeddingEngine, and upserts to
 VectorIndex. SyncResult counts and error handling are validated.
 """
+import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from mcp_memory.services.sync_service import SyncService, SyncResult

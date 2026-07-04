@@ -1,4 +1,4 @@
-"""FastMCP server with 8 tool wrappers (spec §5).
+"""FastMCP server with 9 tool wrappers (spec §5).
 
 Tools:
   memory_add(text, file_ref?, title?, tags?, extra?, scope='memory')
@@ -9,8 +9,11 @@ Tools:
   memory_list(filter?, page?, page_size?, sort_by?, desc?, scope='memory')
   memory_count(filter?, scope='memory')
   memory_sync(mode='incremental', scope='memory')
+  file_upload(file_paths)
 
-Scope routing: 'memory' / 'knowledge' — handled by AppContext.
+Scope routing: 'memory' / 'knowledge' — handled by AppContext for the
+8 memory_* tools. ``file_upload`` is global (not scope-keyed) because
+Feishu Drive uploads aren't bound to either library.
 
 The wiring targets the Service interfaces from Stage 5
 (MemoryService, SearchService, SyncService). No Feishu SDK calls run here;
@@ -118,8 +121,29 @@ def _sort_summaries(items: list[dict], sort_by: str, desc: bool) -> list[dict]:
     return sorted(items, key=key, reverse=desc)
 
 
+_upload_service_singleton: Any = None
+
+
+def _get_upload_service():
+    """Module-level singleton UploadService for file_upload tool.
+
+    file_upload doesn't take a scope (uploads are global to Feishu Drive),
+    so it doesn't fit into AppContext's per-scope routing. A lazy singleton
+    keeps the construction cost off the import path and avoids threading
+    a new dependency through ``make_server``'s signature.
+    """
+    from mcp_memory.feishu.drive import DriveClient
+    from mcp_memory.feishu.runner import LarkCliRunner
+    from mcp_memory.services.upload_service import UploadService
+
+    global _upload_service_singleton
+    if _upload_service_singleton is None:
+        _upload_service_singleton = UploadService(DriveClient(LarkCliRunner()))
+    return _upload_service_singleton
+
+
 def make_server(ctx: AppContext) -> FastMCP:
-    """Build FastMCP server with all 8 tools wired to ``ctx`` services."""
+    """Build FastMCP server with all 9 tools wired to ``ctx`` services."""
     mcp = FastMCP("feishu-memory-mcp")
 
     @mcp.tool
@@ -133,9 +157,14 @@ def make_server(ctx: AppContext) -> FastMCP:
     ) -> dict:
         """添加一条记忆到 long-term RAG。
 
-        何时调用：用户让你记下；agent 识别对话有可复用内容；解析完附件后入库。
-        不要用于：临时上下文、系统指令。
-        scope 选择："memory"（默认）| "knowledge"
+        何时调用：
+        scope="memory"（默认）：
+        存储可复用的经验、用户的偏好/教训、事件里程碑等。
+        不要用于：临时上下文（对话中直接保留）、系统指令（不是记忆）。
+
+        scope="knowledge"：
+        存储用户的材料/文件（规范、文档、笔记等），但需要你先解析附件内容为文本。
+        file_ref 需要先调用 file_upload 工具获取 file token + URL。
         """
         from mcp_memory.models.record import FeishuFileRef
 
@@ -309,5 +338,34 @@ def make_server(ctx: AppContext) -> FastMCP:
         else:
             return {"error": "invalid_mode", "mode": mode}
         return result.to_dict() | {"scope": scope}
+
+    @mcp.tool
+    async def file_upload(file_paths: list[str]) -> dict:
+        """上传文件到飞书云盘，返回 file token + URL。
+
+        何时调用：
+        - 用户要保存本地文件到飞书
+        - 需要先把文件上传到飞书，再调用 memory_add 存储为 memory 或 knowledge
+        - 用户提供了多个本地文件需要入库
+
+        参数：
+        - file_paths: 本地文件路径列表（支持一次上传多个文件）
+
+        返回：
+        每条路径对应一条结果，结构：
+        {
+          "uploads": [
+            {"file_path": "...", "status": "ok", "file_token": "...", "url": "...", "name": "..."},
+            {"file_path": "...", "status": "error", "error": "file_not_found"}
+          ]
+        }
+
+        失败处理：单个文件失败不会中止其他文件的上传。
+        """
+        if not file_paths:
+            return {"error": "empty_file_paths", "uploads": []}
+        upload_svc = _get_upload_service()
+        uploads = await upload_svc.upload(file_paths)
+        return {"uploads": uploads}
 
     return mcp

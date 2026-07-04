@@ -1,6 +1,7 @@
 """Feishu Wiki client via lark-cli v2 protocol."""
 from __future__ import annotations
 
+from typing import Any
 from mcp_memory.feishu.runner import LarkCliRunner, LarkCliError
 
 

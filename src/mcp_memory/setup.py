@@ -156,7 +156,7 @@ async def ensure_bitable_schema(
                 "--base-token", app_token,
                 "--table-id", table_id,
                 "--json", json.dumps(field_def),
-            ])
+            ], yes=True)
         except LarkCliError as e:
             errors.append(f"create field {name}: {e}")
             continue

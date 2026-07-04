@@ -1,7 +1,7 @@
 import json
 import pytest
 from unittest.mock import MagicMock
-from mcp_memory.feishu.bitable import BitableClient
+from mcp_memory.feishu.bitable import BitableClient, BitableRecord
 from mcp_memory.feishu.runner import LarkCliRunner
 
 

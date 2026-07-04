@@ -1,42 +1,37 @@
-# Tool reference
+# 工具参考
 
-The MCP server exposes **8 tools**, all routed through `AppContext`. Each
-accepts a `scope` parameter (`"memory"` or `"knowledge"`, default
-`"memory"`) and is implemented in
-[`src/mcp_memory/server.py`](../src/mcp_memory/server.py). This document
-is the authoritative reference; the function signatures in `server.py`
-are the canonical source.
+MCP 服务器暴露 **9 个工具** —— 8 个通过 `AppContext` 路由（每个都有
+`scope` 参数，`"memory"` 或 `"knowledge"`，默认 `"memory"`），
+1 个不带 scope 的工具（`file_upload`）。所有工具都在
+[`src/mcp_memory/server.py`](../src/mcp_memory/server.py) 中实现。
+本文档是权威参考；`server.py` 中的函数签名是规范来源。
 
-## Conventions
+## 约定
 
-- All tools are **async** and return `dict` (MCP-compatible).
-- `scope="memory"` (default) routes to the agent-shared memory Bitable.
-  `scope="knowledge"` routes to the owner-curated knowledge Bitable.
-  Routing is by **the tool call**, not by the record — a record lives in
-  exactly one Bitable.
-- Errors come back as `{"error": "<code>", ...}` payloads with `error` set;
-  successes always carry `"status"` (or a domain field) for easy
-  branching.
-- Time fields are unix epoch milliseconds.
+- 所有工具都是 **async** 的，返回 `dict`（MCP 兼容）。
+- `scope="memory"`（默认）路由到 agent 共享的记忆 Bitable。
+  `scope="knowledge"` 路由到 owner 维护的知识 Bitable。
+  路由通过 **工具调用** 完成，而不是通过记录 —— 一条记录只存在于一个 Bitable 中。
+- 错误以 `{"error": "<code>", ...}` 形式返回，其中 `error` 已设置；
+  成功始终带有 `"status"`（或领域字段）以便于分支。
+- 时间字段是 unix 纪元毫秒。
 
-## Scope reference
+## Scope 参考
 
-| Scope        | Routes to            | Typical writer                       | Typical reader               |
-|--------------|----------------------|--------------------------------------|------------------------------|
-| `memory`     | `memory_bitable`     | `memory_add` (agents)                | All agents + the owner       |
-| `knowledge`  | `knowledge_bitable`  | Direct Bitable edits / file sync     | Agents via `memory_query`    |
+| Scope | 路由到 | 典型写入者 | 典型读取者 |
+|-------|--------|------------|------------|
+| `memory` | `memory_bitable` | `memory_add`（agents）| 所有 agents + owner |
+| `knowledge` | `knowledge_bitable` | 直接编辑 Bitable / 文件同步 | Agents 通过 `memory_query` |
 
-If you're not sure, **start with `memory`**. Knowledge is for when the
-owner is curating reference material.
+如果不确定，**从 `memory` 开始**。知识库用于 owner 整理参考资料时。
 
 ---
 
 ## memory_add
 
-Add a new memory record. Writes to Feishu first (authoritative), then
-best-effort to the local cache.
+添加一条新的记忆记录。先写入飞书（权威源），然后尽力写入本地缓存。
 
-**Signature** (canonical):
+**签名**（规范）：
 
 ```text
 async def memory_add(
@@ -49,18 +44,28 @@ async def memory_add(
 ) -> dict
 ```
 
-### Parameters
+### 何时调用：
 
-| Name       | Type           | Required | Default     | Description                                                |
-|------------|----------------|----------|-------------|------------------------------------------------------------|
-| `text`     | `str`          | yes      | —           | Plain text to store (1–100 000 chars). File attachments must be parsed by the caller first. |
-| `file_ref` | `dict \| None` | no       | `None`      | Reference to a Feishu Drive file. Shape: `{type, token, url, file_name?, mime_type?}`. |
-| `title`    | `str \| None`  | no       | first 30 chars of `text` | Human-readable title shown in Bitable. |
-| `tags`     | `list[str] \| None` | no   | `[]`        | Searchable tags. Normalized lowercase + dedup.             |
-| `extra`    | `dict \| None` | no       | `{}`        | Extra key/value metadata; serialized into Bitable `extra_json`. |
-| `scope`    | `str`          | no       | `"memory"`  | `"memory"` or `"knowledge"`. Other values raise `ValueError`. |
+scope="memory"（默认）：
+存储可复用的经验、用户的偏好/教训、事件里程碑等。
+不要用于：临时上下文（对话中直接保留）、系统指令（不是记忆）。
 
-### Return shape
+scope="knowledge"：
+存储用户的材料/文件（规范、文档、笔记等），但需要你先解析附件内容为文本。
+file_ref 需要先调用 file_upload 工具获取 file token + URL。
+
+### 参数
+
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `text` | `str` | 是 | — | 要存储的纯文本（1–100 000 字符）。文件附件必须由调用者先解析。 |
+| `file_ref` | `dict \| None` | 否 | `None` | 飞书云盘文件的引用。格式：`{type, token, url, file_name?, mime_type?}`。 |
+| `title` | `str \| None` | 否 | `text` 的前 30 个字符 | 在 Bitable 中显示的人类可读标题。 |
+| `tags` | `list[str] \| None` | 否 | `[]` | 可搜索的标签。规范化为小写 + 去重。 |
+| `extra` | `dict \| None` | 否 | `{}` | 额外的键值对元数据；序列化到 Bitable 的 `extra_json`。 |
+| `scope` | `str` | 否 | `"memory"` | `"memory"` 或 `"knowledge"`。其他值会引发 `ValueError`。 |
+
+### 返回格式
 
 ```json
 {
@@ -73,22 +78,22 @@ async def memory_add(
 }
 ```
 
-`status` is `"ok"` on success. `warning` (optional) is a non-fatal note
-such as `"local embedding skipped; will retry on next sync"`.
+`status` 在成功时为 `"ok"`。`warning`（可选）是非致命的提示，
+例如 `"local embedding skipped; will retry on next sync"`。
 
-### Example
+### 示例
 
 ```python
 await memory_add(
-    text="FastAPI + uvicorn deploy; set --workers based on cpu count.",
+    text="FastAPI + uvicorn 部署；根据 CPU 数量设置 --workers。",
     tags=["python", "deployment"],
     extra={"source_doc": "runbook-2026Q3"},
     scope="memory",
 )
 
-# With file_ref
+# 使用 file_ref
 await memory_add(
-    text="PDF content converted to text by the agent ...",
+    text="PDF 内容由 agent 转换为文本 ...",
     file_ref={
         "type": "drive_file",
         "token": "boxcnxxx",
@@ -104,10 +109,10 @@ await memory_add(
 
 ## memory_query
 
-Search the local index. **Default and recommended mode is
-`"hybrid_rerank"`**, which combines BM25, vector, RRF, and reranking.
+搜索本地索引。**默认和推荐的模式是 `"hybrid_rerank"`**，
+它结合了 BM25、向量、RRF 和重排。
 
-### Signature
+### 签名
 
 ```text
 async def memory_query(
@@ -119,42 +124,42 @@ async def memory_query(
 ) -> dict
 ```
 
-### Parameters
+### 参数
 
-| Name    | Type     | Required | Default          | Description                              |
-|---------|----------|----------|------------------|------------------------------------------|
-| `query` | `str`    | yes      | —                | Natural-language query string.           |
-| `top_k` | `int`    | no       | `5`              | Number of results to return (1+).        |
-| `filter`| `dict \| None` | no  | `None`         | Pre-filter by metadata before recall.    |
-| `mode`  | `str`    | no       | `"hybrid_rerank"`| Retrieval mode. See table below.         |
-| `scope` | `str`    | no       | `"memory"`       | `"memory"` or `"knowledge"`.             |
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `query` | `str` | 是 | — | 自然语言查询字符串。 |
+| `top_k` | `int` | 否 | `5` | 要返回的结果数（1+）。 |
+| `filter` | `dict \| None` | 否 | `None` | 在检索前按元数据进行预过滤。 |
+| `mode` | `str` | 否 | `"hybrid_rerank"` | 检索模式。见下表。 |
+| `scope` | `str` | 否 | `"memory"` | `"memory"` 或 `"knowledge"`。 |
 
-#### Filter shape
+#### 过滤器格式
 
 ```python
 {
-    "tags_any": ["python", "deployment"],          # any of these tags
-    "tags_all": ["python"],                         # all of these tags
-    "source_agent": "claude-1",                     # restrict by agent (memory scope)
-    "source_type": "agent_add",                     # agent_add / feishu_doc / etc
-    "created_after": 1719000000000,                 # unix ms; inclusive
-    "updated_after": 1719000000000,                 # unix ms; inclusive
-    "include_empty_text": False                     # default False: skip text_empty
+    "tags_any": ["python", "deployment"],          # 这些标签中的任何一个
+    "tags_all": ["python"],                         # 所有这些标签
+    "source_agent": "claude-1",                     # 按 agent 限制（memory scope）
+    "source_type": "agent_add",                     # agent_add / feishu_doc / 等
+    "created_after": 1719000000000,                 # unix 毫秒；包含
+    "updated_after": 1719000000000,                 # unix 毫秒；包含
+    "include_empty_text": False                     # 默认 False：跳过 text_empty
 }
 ```
 
-All keys are optional. Empty/`None` filter means no pre-filter.
+所有键都是可选的。空/`None` 过滤器表示没有预过滤。
 
-#### Mode comparison
+#### 模式比较
 
-| Mode              | Path                                              | Use when                                      | Cost      |
-|-------------------|---------------------------------------------------|-----------------------------------------------|-----------|
-| `bm25_only`       | FTS5 keyword only                                 | Exact name / date / id / acronym              | Fastest   |
-| `vector_only`     | bge-m3 → LanceDB cosine                           | Abstract concept / paraphrased intent         | Fast      |
-| `hybrid`          | BM25 + vector, fused with RRF, **no rerank**      | Want RRF benefit but skip reranker            | Medium    |
-| `hybrid_rerank` (default) | BM25 + vector + RRF + bge-reranker-base    | Mixed intent; want best results              | Slowest (best quality) |
+| 模式 | 路径 | 何时使用 | 成本 |
+|------|------|----------|------|
+| `bm25_only` | 仅 FTS5 关键词 | 精确名称 / 日期 / id / 缩写 | 最快 |
+| `vector_only` | bge-m3 → LanceDB 余弦 | 抽象概念 / 改写意图 | 快 |
+| `hybrid` | BM25 + 向量，用 RRF 融合，**不重排** | 想要 RRF 收益但跳过重排器 | 中 |
+| `hybrid_rerank`（默认） | BM25 + 向量 + RRF + bge-reranker-base | 混合意图；想要最佳结果 | 最慢（最佳质量） |
 
-### Return shape
+### 返回格式
 
 ```json
 {
@@ -162,9 +167,9 @@ All keys are optional. Empty/`None` filter means no pre-filter.
     {
       "record_id": "rec_a1b2c3d4",
       "score": 0.93,
-      "title": "FastAPI + uvicorn deploy",
-      "preview": "FastAPI + uvicorn deploy; set --workers ...",
-      "matched_chunk_text": "...matched snippet...",
+      "title": "FastAPI + uvicorn 部署",
+      "preview": "FastAPI + uvicorn 部署；设置 --workers ...",
+      "matched_chunk_text": "...匹配的片段...",
       "content_ref_url": "https://feishu.cn/docs/...",
       "tags": ["python", "deployment"],
       "source": "agent_add",
@@ -179,24 +184,24 @@ All keys are optional. Empty/`None` filter means no pre-filter.
 }
 ```
 
-`cache_age_seconds` reports how stale the local index is since the last
-sync (in seconds). High values suggest you may want a `memory_sync`.
+`cache_age_seconds` 报告自上次同步以来本地索引的陈旧程度（以秒为单位）。
+较高的值表明你可能需要 `memory_sync`。
 
-### Example
+### 示例
 
 ```python
-# Default — best for "I want the right answer, fast"
-results = await memory_query(query="how to deploy FastAPI app")
+# 默认 —— 适合"我想要正确答案，快速"
+results = await memory_query(query="如何部署 FastAPI 应用")
 
-# Force keyword-only lookup for a project codename
+# 强制仅关键词查找项目代号
 results = await memory_query(
     query="ATLAS-2042",
     mode="bm25_only",
 )
 
-# Restrict to tags + a date window
+# 限制标签 + 日期窗口
 results = await memory_query(
-    query="incident postmortem template",
+    query="事件复盘模板",
     top_k=10,
     filter={"tags_any": ["postmortem"], "updated_after": 1717200000000},
 )
@@ -206,28 +211,28 @@ results = await memory_query(
 
 ## memory_get
 
-Fetch one record by id, including its full text and content reference.
+按 id 获取一条记录，包括其完整文本和内容引用。
 
-### Signature
+### 签名
 
 ```text
 async def memory_get(record_id: str, scope: str = "memory") -> dict
 ```
 
-### Parameters
+### 参数
 
-| Name        | Type   | Required | Default     | Description                          |
-|-------------|--------|----------|-------------|--------------------------------------|
-| `record_id` | `str`  | yes      | —           | The id returned by `memory_add` / `memory_list` / `memory_query`. |
-| `scope`     | `str`  | no       | `"memory"`  | Which Bitable to look in.            |
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `record_id` | `str` | 是 | — | 由 `memory_add` / `memory_list` / `memory_query` 返回的 id。 |
+| `scope` | `str` | 否 | `"memory"` | 要查找的 Bitable。 |
 
-### Return shape
+### 返回格式
 
 ```json
 {
   "record_id": "rec_a1b2c3d4",
-  "title": "FastAPI + uvicorn deploy",
-  "preview": "FastAPI + uvicorn deploy; set --workers based on cpu count.",
+  "title": "FastAPI + uvicorn 部署",
+  "preview": "FastAPI + uvicorn 部署；根据 CPU 数量设置 --workers。",
   "content_ref": {
     "type": "docx",
     "token": "doccnxxx",
@@ -239,19 +244,19 @@ async def memory_get(record_id: str, scope: str = "memory") -> dict
   "source_agent": "claude-1",
   "created_at": 1719000000,
   "updated_at": 1719000123,
-  "full_text": "FastAPI + uvicorn deploy; set --workers based on cpu count.\n\n...",
+  "full_text": "FastAPI + uvicorn 部署；根据 CPU 数量设置 --workers。\n\n...",
   "chunks": [],
   "scope": "memory"
 }
 ```
 
-If not found:
+如果未找到：
 
 ```json
 { "error": "not_found", "record_id": "rec_xxx", "scope": "memory" }
 ```
 
-### Example
+### 示例
 
 ```python
 rec = await memory_get(record_id="rec_a1b2c3d4")
@@ -263,10 +268,10 @@ if "error" not in rec:
 
 ## memory_update
 
-Edit metadata on an existing record. **Does not change `text` or
-`content_ref`.** To change text, call `memory_delete` then `memory_add`.
+编辑现有记录的元数据。**不会更改 `text` 或 `content_ref`。**
+要更改文本，请调用 `memory_delete` 然后 `memory_add`。
 
-### Signature
+### 签名
 
 ```text
 async def memory_update(
@@ -278,20 +283,20 @@ async def memory_update(
 ) -> dict
 ```
 
-### Parameters
+### 参数
 
-| Name        | Type                | Required | Default     | Description                                  |
-|-------------|---------------------|----------|-------------|----------------------------------------------|
-| `record_id` | `str`               | yes      | —           | Target record.                               |
-| `scope`     | `str`               | no       | `"memory"`  | Which Bitable the record is in.              |
-| `title`     | `str \| None`       | no       | unchanged   | New title (replaces existing).               |
-| `tags`      | `list[str] \| None` | no       | unchanged   | Replace. Pass `[]` to clear; pass `None` to leave unchanged. |
-| `extra`     | `dict \| None`      | no       | unchanged   | Replace. Same semantics as `tags`.           |
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `record_id` | `str` | 是 | — | 目标记录。 |
+| `scope` | `str` | 否 | `"memory"` | 记录所在的 Bitable。 |
+| `title` | `str \| None` | 否 | 不变 | 新标题（替换现有的）。 |
+| `tags` | `list[str] \| None` | 否 | 不变 | 替换。传 `[]` 表示清空；传 `None` 表示保持不变。 |
+| `extra` | `dict \| None` | 否 | 不变 | 替换。与 `tags` 相同的语义。 |
 
-Note: `tags=[]` means *clear*, `tags=None` (or omitting the param) means
-*keep as-is*. Same for `extra`.
+注意：`tags=[]` 表示 *清空*，`tags=None`（或省略参数）表示
+*保持原样*。`extra` 也是如此。
 
-### Return shape
+### 返回格式
 
 ```json
 {
@@ -303,19 +308,19 @@ Note: `tags=[]` means *clear*, `tags=None` (or omitting the param) means
 }
 ```
 
-If not found:
+如果未找到：
 
 ```json
 { "error": "not_found", "record_id": "rec_xxx", "scope": "memory" }
 ```
 
-### Example
+### 示例
 
 ```python
 await memory_update(
     record_id="rec_a1b2c3d4",
     tags=["python", "deployment", "fastapi"],
-    title="FastAPI + uvicorn — production deploy notes",
+    title="FastAPI + uvicorn — 生产部署笔记",
 )
 ```
 
@@ -323,64 +328,63 @@ await memory_update(
 
 ## memory_delete
 
-Permanently delete a record from both Feishu and the local cache. The
-Drive source file (if any) is **not** deleted.
+从飞书和本地缓存中永久删除一条记录。云盘源文件（如果有）**不会**被删除。
 
-### Signature
+### 签名
 
 ```text
 async def memory_delete(record_id: str, confirm: bool = False, scope: str = "memory") -> dict
 ```
 
-### Parameters
+### 参数
 
-| Name        | Type   | Required | Default     | Description                                  |
-|-------------|--------|----------|-------------|----------------------------------------------|
-| `record_id` | `str`  | yes      | —           | Target record.                               |
-| `confirm`   | `bool` | yes (effectively) | `False` | Safety check. Must be `True` to delete.   |
-| `scope`     | `str`  | no       | `"memory"`  | Which Bitable the record is in.              |
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `record_id` | `str` | 是 | — | 目标记录。 |
+| `confirm` | `bool` | 是（实际） | `False` | 安全检查。必须为 `True` 才能删除。 |
+| `scope` | `str` | 否 | `"memory"` | 记录所在的 Bitable。 |
 
-### Return shape
+### 返回格式
 
-Success:
+成功：
 
 ```json
 { "status": "deleted", "record_id": "rec_a1b2c3d4", "scope": "memory" }
 ```
 
-Not found:
+未找到：
 
 ```json
 { "status": "not_found", "record_id": "rec_xxx", "scope": "memory" }
 ```
 
-Refused (no confirmation):
+拒绝（无确认）：
 
 ```json
 { "error": "confirm_required", "record_id": "rec_xxx" }
 ```
 
-### Example
+### 示例
 
 ```python
 await memory_delete(record_id="rec_a1b2c3d4", confirm=True)
 ```
 
-### Notes
+### 注意
 
-- **This is irreversible.** The Bitable record is removed and the cache is
-  deleted. To "edit" a body, use `memory_update` for metadata or
-  `memory_delete` + `memory_add` for content.
-- Drive source files are untouched (Feishu's own Drive retention applies).
+- **此操作不可逆。** Bitable 记录被删除，缓存也被删除。
+  要"编辑"正文，请使用 `memory_update` 编辑元数据，
+  或使用 `memory_delete` + `memory_add` 来更改内容。
+- 云盘源文件不受影响（飞书自身的云盘保留策略适用）。
 
 ---
 
 ## memory_list
 
-Paginated list of records, **no semantic search** — just metadata
-filtering + sort. Use `memory_query` when you need relevance ranking.
+分页列出记录，**不带语义搜索** —— 只是元数据过滤 + 排序。
+当你需要相关性排序时，请使用 `memory_query`。
 
-### Signature
+### 签名
 
 ```text
 async def memory_list(
@@ -393,18 +397,18 @@ async def memory_list(
 ) -> dict
 ```
 
-### Parameters
+### 参数
 
-| Name        | Type                | Required | Default       | Description                                                  |
-|-------------|---------------------|----------|---------------|--------------------------------------------------------------|
-| `filter`    | `dict \| None`      | no       | `None`        | Same filter shape as `memory_query`.                         |
-| `page`      | `int`               | no       | `1`           | 1-indexed page number.                                       |
-| `page_size` | `int`               | no       | `20`          | Items per page (1–200).                                       |
-| `sort_by`   | `str`               | no       | `"updated_at"`| Field to sort by.                                            |
-| `desc`      | `bool`              | no       | `True`        | If `True`, newest-first; if `False`, oldest-first.           |
-| `scope`     | `str`               | no       | `"memory"`    | `"memory"` or `"knowledge"`.                                 |
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `filter` | `dict \| None` | 否 | `None` | 与 `memory_query` 相同的过滤器格式。 |
+| `page` | `int` | 否 | `1` | 从 1 开始的页码。 |
+| `page_size` | `int` | 否 | `20` | 每页项数（1–200）。 |
+| `sort_by` | `str` | 否 | `"updated_at"` | 排序字段。 |
+| `desc` | `bool` | 否 | `True` | 如果为 `True`，按最新优先；如果为 `False`，按最旧优先。 |
+| `scope` | `str` | 否 | `"memory"` | `"memory"` 或 `"knowledge"`。 |
 
-### Return shape
+### 返回格式
 
 ```json
 {
@@ -418,14 +422,13 @@ async def memory_list(
 }
 ```
 
-> Note: in the current implementation, the resolved `record_id`s are
-> returned in `_ids`. The `items` field is reserved for future detailed
-> payloads. Use `memory_get` to fetch the full body of any id.
+> 注意：在当前实现中，已解析的 `record_id` 在 `_ids` 中返回。
+> `items` 字段保留供将来使用详细负载。请使用 `memory_get` 获取任何 id 的完整内容。
 
-### Example
+### 示例
 
 ```python
-# Pages through all "design" entries, newest first
+# 分页浏览所有"design"条目，最新优先
 listed = await memory_list(
     filter={"tags_any": ["design"]},
     page=1,
@@ -440,70 +443,67 @@ for rid in listed["_ids"]:
 
 ## memory_count
 
-Count records matching a filter, no payload returned. **Local-only** —
-works offline.
+按过滤器计算匹配记录数，不返回负载。**仅本地** —— 离线工作。
 
-### Signature
+### 签名
 
 ```text
 async def memory_count(filter: dict | None = None, scope: str = "memory") -> dict
 ```
 
-### Parameters
+### 参数
 
-| Name     | Type             | Required | Default     | Description                            |
-|----------|------------------|----------|-------------|----------------------------------------|
-| `filter` | `dict \| None`   | no       | `None`      | Same filter shape as `memory_query`.   |
-| `scope`  | `str`            | no       | `"memory"`  | `"memory"` or `"knowledge"`.           |
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `filter` | `dict \| None` | 否 | `None` | 与 `memory_query` 相同的过滤器格式。 |
+| `scope` | `str` | 否 | `"memory"` | `"memory"` 或 `"knowledge"`。 |
 
-### Return shape
+### 返回格式
 
 ```json
 { "count": 142, "filter_applied": null, "scope": "memory" }
 ```
 
-### Example
+### 示例
 
 ```python
 n = await memory_count(filter={"tags_any": ["design"]})
-print(f"There are {n['count']} design-tagged memories")
+print(f"有 {n['count']} 条带 design 标签的记忆")
 ```
 
 ---
 
 ## memory_sync
 
-Reconcile the local cache with Feishu. **Always call this if the local
-index looks stale or after editing the Bitable directly.**
+协调本地缓存与飞书。**如果你发现本地索引看起来陈旧，或在直接编辑 Bitable 后，请调用此函数。**
 
-### Signature
+### 签名
 
 ```text
 async def memory_sync(mode: str = "incremental", scope: str = "memory") -> dict
 ```
 
-### Parameters
+### 参数
 
-| Name    | Type   | Required | Default         | Description                                              |
-|---------|--------|----------|-----------------|----------------------------------------------------------|
-| `mode`  | `str`  | no       | `"incremental"` | One of: `"incremental"`, `"full"`, `"rebuild"`.          |
-| `scope` | `str`  | no       | `"memory"`      | `"memory"`, `"knowledge"`. (CLI also accepts `"both"`; the MCP tool takes one per call.) |
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `mode` | `str` | 否 | `"incremental"` | 之一：`"incremental"`、`"full"`、`"rebuild"`。 |
+| `scope` | `str` | 否 | `"memory"` | `"memory"`、`"knowledge"`。（CLI 还接受 `"both"`；MCP 工具每次调用针对一个 scope。） |
 
-> The CLI `feishu-memory sync --scope both` syncs both scopes in one
-> invocation. The MCP `memory_sync` tool targets a single scope; to sync
-> both, call it twice.
+> CLI `feishu-memory sync --scope both` 一次同步两个 scope。
+> MCP `memory_sync` 工具针对单个 scope；要同步两者，请调用两次。
 
-#### Mode comparison
+#### 模式比较
 
-| Mode           | What it does                                                              | Time         | Touches Feishu data | Use case                                |
-|----------------|---------------------------------------------------------------------------|--------------|---------------------|-----------------------------------------|
-| `incremental`  | Pull records with `updated_at > last_sync_at`; embed only changed text    | Seconds      | No                  | Daily use; cron; startup auto-sync      |
-| `full`         | Pull all Feishu records; diff with local cache; re-embed only changed     | Minutes      | No                  | Catch up after long absence             |
-| `rebuild`      | Wipe local cache, re-import everything, re-embed everything               | Minutes (longest) | No              | Cache corruption, embedding-model change |
+| 模式 | 它做什么 | 时间 | 是否触及飞书数据 | 使用场景 |
+|------|----------|------|------------------|----------|
+| `incremental` | 拉取 `updated_at > last_sync_at` 的记录；仅为更改的文本生成嵌入 | 秒级 | 否 | 日常使用；定时任务；启动自动同步 |
+| `full` | 拉取所有飞书记录；与本地缓存对比；仅为更改重新嵌入 | 分钟级 | 否 | 长时间离开后赶上 |
+| `rebuild` | 擦除本地缓存，重新导入所有内容，重新嵌入所有内容 | 分钟级（最长） | 否 | 缓存损坏，嵌入模型更改 |
 
-### Return shape
+### 返回格式
 
-A `SyncResult` dictionary:
+一个 `SyncResult` 字典：
 
 ```json
 {
@@ -518,71 +518,169 @@ A `SyncResult` dictionary:
 }
 ```
 
-For invalid `mode`:
+对于无效的 `mode`：
 
 ```json
 { "error": "invalid_mode", "mode": "weekly" }
 ```
 
-### Example
+### 示例
 
 ```python
-# After editing the Bitable in the Feishu UI
+# 在飞书 UI 中编辑 Bitable 后
 await memory_sync(mode="incremental")
 
-# After a long absence, on a busy library
+# 长时间离开后，在繁忙的库上
 await memory_sync(mode="full")
 
-# After changing the embedding model, or cache corruption
+# 在更改嵌入模型后，或缓存损坏
 await memory_sync(mode="rebuild")
 ```
 
-### Notes
+### 注意
 
-- Sync is **pull only** — it never modifies Feishu records (other than
-  the records `memory_add` and `memory_delete` create / remove).
-- Sync can be slow on huge libraries. `incremental` is the only mode
-  suitable for cron intervals under a minute.
-- On startup, the server runs `incremental` automatically when
-  `FEISHU_MEMORY_AUTO_SYNC=true` (the default).
+- 同步是 **仅拉取** —— 它永远不会修改飞书记录（除了
+  `memory_add` 和 `memory_delete` 创建/删除的记录）。
+- 在庞大的库上同步可能很慢。`incremental` 是唯一适合
+  不到一分钟间隔的定时任务的模式。
+- 在启动时，当 `FEISHU_MEMORY_AUTO_SYNC=true`（默认）时，
+  服务器会自动运行 `incremental`。
 
 ---
 
-## Filter reference (used by `memory_query`, `memory_list`, `memory_count`)
+## 过滤器参考（由 `memory_query`、`memory_list`、`memory_count` 使用）
 
-Every key is optional. Missing keys = no constraint on that dimension.
+每个键都是可选的。缺失的键 = 对该维度没有约束。
 
-| Key                 | Type          | Meaning                                              |
-|---------------------|---------------|------------------------------------------------------|
-| `tags_any`          | `list[str]`   | Record must have **at least one** of these tags.     |
-| `tags_all`          | `list[str]`   | Record must have **all** of these tags.              |
-| `source_agent`      | `str`         | Restrict to a specific agent (memory scope only).    |
-| `source_type`       | `str`         | One of: `agent_add`, `feishu_doc`, `feishu_bitable`, `feishu_drive_file`, `feishu_wiki`. |
-| `created_after`     | `int` (ms)    | `created_at >= this`.                                |
-| `updated_after`     | `int` (ms)    | `updated_at >= this`.                                |
-| `include_empty_text`| `bool`        | Default `False`: records with `text_empty=True` are skipped. Set `True` to include them. |
+| 键 | 类型 | 含义 |
+|----|------|------|
+| `tags_any` | `list[str]` | 记录必须具有**至少一个**这些标签。 |
+| `tags_all` | `list[str]` | 记录必须具有**所有**这些标签。 |
+| `source_agent` | `str` | 限制为特定 agent（仅 memory scope）。 |
+| `source_type` | `str` | 之一：`agent_add`、`feishu_doc`、`feishu_bitable`、`feishu_drive_file`、`feishu_wiki`。 |
+| `created_after` | `int`（毫秒） | `created_at >= this`。 |
+| `updated_after` | `int`（毫秒） | `updated_at >= this`。 |
+| `include_empty_text` | `bool` | 默认 `False`：跳过 `text_empty=True` 的记录。设置为 `True` 以包含它们。 |
 
-`tags_any` and `tags_all` can be combined; the record must satisfy
-both.
+`tags_any` 和 `tags_all` 可以组合使用；记录必须满足两者。
 
-## Quick scope decision table
+## 快速 scope 决策表
 
-| User wants                                           | Use                              |
-|------------------------------------------------------|----------------------------------|
-| Save a fact, note, or snippet from this conversation | `memory_add(scope="memory")`     |
-| Add a reference doc the owner just gave you          | `memory_add(scope="knowledge")`  |
-| Search prior agent context                           | `memory_query(scope="memory")`   |
-| Search the owner's curated library                   | `memory_query(scope="knowledge")`|
-| List everything tagged a certain way                 | `memory_list` / `memory_count`   |
-| Fix a typo in a previous memory's title              | `memory_update`                  |
-| Forget a memory                                      | `memory_delete(confirm=True)`    |
-| Refresh after editing the Bitable in Feishu UI       | `memory_sync`                    |
+| 用户希望 | 使用 |
+|----------|------|
+| 保存事实、笔记或对话片段 | `memory_add(scope="memory")` |
+| 添加 owner 给你的参考文档 | `memory_add(scope="knowledge")` |
+| 搜索之前的 agent 上下文 | `memory_query(scope="memory")` |
+| 搜索 owner 维护的库 | `memory_query(scope="knowledge")` |
+| 列出所有以某种方式标记的内容 | `memory_list` / `memory_count` |
+| 修复以前记忆标题中的拼写错误 | `memory_update` |
+| 忘记一条记忆 | `memory_delete(confirm=True)` |
+| 在飞书 UI 中编辑 Bitable 后刷新 | `memory_sync` |
 
-## Quick query-mode decision table
+## 快速查询模式决策表
 
-| Query intent                                  | Use mode             |
-|-----------------------------------------------|----------------------|
-| Default; mixed intent; need best results       | `"hybrid_rerank"`    |
-| Exact name / date / ID / acronym               | `"bm25_only"`        |
-| Abstract concept; paraphrased meaning          | `"vector_only"`      |
-| Want fusion but skip reranker for speed        | `"hybrid"`           |
+| 查询意图 | 使用模式 |
+|----------|----------|
+| 默认；混合意图；需要最佳结果 | `"hybrid_rerank"` |
+| 精确名称 / 日期 / ID / 缩写 | `"bm25_only"` |
+| 抽象概念；改写的含义 | `"vector_only"` |
+| 想要融合但跳过重排器以加速 | `"hybrid"` |
+
+---
+
+## file_upload
+
+将一个或多个本地文件上传到飞书云盘，并为每个文件返回 `file_token` +
+`url`。使用此工具获取 `memory_add` 所需的 `file_ref` 负载。
+**不按 scope 限定** —— 飞书云盘上传是全局的，因此此工具不接受 `scope` 参数。
+
+**签名**（规范）：
+
+```text
+async def file_upload(
+    file_paths: list[str],
+) -> dict
+```
+
+### 参数
+
+| 名称 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `file_paths` | `list[str]` | 是 | — | 要上传的本地文件路径。传入多个以进行批量上传。 |
+
+### 返回格式
+
+```json
+{
+  "uploads": [
+    {
+      "file_path": "/path/to/whitepaper.pdf",
+      "status": "ok",
+      "file_token": "boxcnxxx",
+      "url": "https://feishu.cn/drive/file/boxcnxxx",
+      "name": "whitepaper.pdf"
+    },
+    {
+      "file_path": "/path/to/missing.pdf",
+      "status": "error",
+      "error": "file_not_found"
+    }
+  ]
+}
+```
+
+对于空输入：
+
+```json
+{ "error": "empty_file_paths", "uploads": [] }
+```
+
+### 每个条目的状态
+
+| `status` | 何时 | 其他字段 |
+|----------|------|----------|
+| `"ok"` | 上传成功 | `file_token`、`url`、`name` |
+| `"error"` | 本地文件缺失 | `error: "file_not_found"` |
+| `"error"` | 空 / null 路径 | `error: "empty_path"` |
+| `"error"` | 云盘未返回 token | `error: "no_file_token_returned"` |
+| `"error"` | lark-cli 子进程失败 | `error: <message>` |
+
+一个条目失败绝不会中止批处理 —— 每个路径产生自己的结果，
+因此你可以从部分成功中恢复。
+
+### 示例
+
+```python
+# 上传一个文件，然后存储其内容
+result = await file_upload(file_paths=["/path/to/whitepaper.pdf"])
+ok = next(u for u in result["uploads"] if u["status"] == "ok")
+await memory_add(
+    text=<从文件转换的文本>,
+    file_ref={
+        "type": "drive_file",
+        "token": ok["file_token"],
+        "url": ok["url"],
+        "file_name": ok["name"],
+    },
+)
+
+# 一次上传多个文件
+result = await file_upload(
+    file_paths=["/path/to/a.pdf", "/path/to/b.png", "/path/to/c.pptx"],
+)
+for entry in result["uploads"]:
+    if entry["status"] == "ok":
+        # ... 转换每个文件并调用 memory_add ...
+        pass
+    else:
+        # 向用户报告每个文件的错误
+        print(f"失败：{entry['file_path']} ({entry['error']})")
+```
+
+### 注意
+
+- 该工具返回 `file_token` + `url`。你希望被索引的 `text` 必须来自
+  你自己的文件读取步骤（视觉模型、OCR、解析器等）——
+  `file_upload` 不会提取内容。
+- 返回条目中的 `file_name` 在可用时来自飞书上传响应，
+  否则回退到 `file_paths` 的基本名称。

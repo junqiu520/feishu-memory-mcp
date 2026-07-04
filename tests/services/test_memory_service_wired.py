@@ -4,6 +4,7 @@ Stage 8+9 wire-up: MemoryService.add creates a Docx (via DocxClient),
 then creates a Bitable record (via BitableClient), then writes locally.
 Failure modes must degrade gracefully (log warning, fall back).
 """
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from mcp_memory.services.memory_service import MemoryService

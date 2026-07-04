@@ -88,7 +88,7 @@ def test_config_defaults(monkeypatch):
 
     cfg = Config(_env_file=None)  # type: ignore[call-arg]
     assert cfg.data_dir.name == ".feishu_memory"
-    assert cfg.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert cfg.embedding_model == "BAAI/bge-m3"
     assert cfg.reranker_model == "BAAI/bge-reranker-base"
     assert cfg.device == "cpu"
     assert cfg.default_scope == "memory"

@@ -104,13 +104,11 @@ class LanceVectorIndex:
         self._db = lancedb.connect(str(self.path))
 
         name = self._table_name()
-        # Try to open the existing table first; if that fails (no such table),
-        # create a new one with the right schema. This is more reliable than
-        # list_tables() which can return stale results in some lancedb 0.33
-        # workflows.
-        try:
+        if name in self._db.table_names():
             self._table = self._db.open_table(name)
-        except Exception:
+        else:
+            # Define schema with explicit vector dim so subsequent upserts
+            # of the same dim work, and mismatched dims fail loudly.
             if embedding_dim is None:
                 embedding_dim = 384  # default; first upsert with real data will fix it
             schema = pa.schema([

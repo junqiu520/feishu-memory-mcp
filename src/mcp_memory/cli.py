@@ -23,31 +23,6 @@ from pathlib import Path
 
 from mcp_memory import __version__
 
-
-def _load_env_file() -> None:
-    """Best-effort .env load so 'feishu-memory' works from any cwd.
-
-    Tries in order: cwd/.env → ~/.feishu-memory/.env → /etc/feishu-memory/.env.
-    Silently does nothing if python-dotenv is not installed or no .env is found.
-    """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
-
-    candidates = [
-        Path.cwd() / ".env",
-        Path.home() / ".feishu-memory" / ".env",
-        Path("/etc/feishu-memory/.env"),
-    ]
-    for p in candidates:
-        if p.is_file():
-            load_dotenv(p, override=False)
-            return
-
-
-_load_env_file()
-
 log = logging.getLogger(__name__)
 
 
@@ -495,61 +470,31 @@ def _cmd_status() -> int:
     """Show local cache + sync state."""
     print("feishu-memory status")
     print("=" * 50)
+    print("Local data directory:", end=" ")
 
-    cache_path: Path | None = None
-    vector_path: Path | None = None
-    cfg = None
+    cache_path: str | None
     try:
-        from mcp_memory.storage.paths import local_cache_path, lance_path
+        from mcp_memory.storage.paths import local_cache_path
         from mcp_memory.config import Config
-        cfg = Config(_env_file=None)  # type: ignore[call-arg]
-        data_dir = cfg.data_dir
-        cache_path = local_cache_path(data_dir, "memory")
-        vector_path = lance_path(data_dir, "memory")
-    except Exception as e:
-        print(f"Config / paths: {e}")
 
-    if cache_path is None:
-        print("Local data directory: (config not loaded)")
-        return 0
-
-    print(f"Local data directory: {cache_path}")
-
-    # Check actual state from disk
-    from mcp_memory.storage.local_cache import LocalCache
-    try:
-        cache = LocalCache(cache_path, scope="memory")
         try:
-            mem_count = cache.count_by_filter({})
-            mem_initialized = mem_count > 0
-            print(f"Memory cache:    {mem_count} records ({'initialized' if mem_initialized else 'empty'})")
-            if mem_initialized:
-                state = cache.get_sync_state()
-                print(f"  Last sync:      {state.get('last_sync_at', 'never')}")
-                print(f"  Last full sync: {state.get('last_full_sync_at', 'never')}")
-        finally:
-            cache.close()
-    except Exception as e:
-        print(f"Memory cache:     [error] {e}")
-
-    # Check vector index dir
-    if vector_path and vector_path.exists():
-        try:
-            size = sum(f.stat().st_size for f in vector_path.rglob("*") if f.is_file())
-            print(f"Vector index:     {vector_path} ({size:,} bytes)")
+            cfg = Config(_env_file=None)  # type: ignore[call-arg]
+            cache_path = str(local_cache_path(cfg.data_dir, "memory"))
+            print(cache_path)
         except Exception:
-            print(f"Vector index:     {vector_path} (exists)")
-    else:
-        print("Vector index:     not yet created (run sync)")
+            print("(config not loaded)")
+            cache_path = None
+    except ImportError:
+        print("(paths module not available)")
 
+    print("Memory cache: not yet initialized")
+    print("Knowledge cache: not yet initialized")
+    print("Vector index: pending Stage 8 integration")
     print()
-    # Machine-readable hint for tooling
-    print(json.dumps({
-        "memory_cache": str(cache_path),
-        "memory_cache_exists": cache_path.exists(),
-        "vector_index": str(vector_path) if vector_path else None,
-        "vector_index_exists": vector_path.exists() if vector_path else False,
-    }))
+    if cache_path:
+        # Emit machine-readable hint as a final JSON object to stdout for
+        # tools that want to scrape state without parsing text.
+        print(json.dumps({"memory_cache": cache_path, "initialized": False}))
     return 0
 
 
@@ -558,6 +503,7 @@ def _cmd_schema(args: argparse.Namespace) -> int:
     from mcp_memory.setup import (
         EXPECTED_BITABLE_FIELDS,
         check_status,
+        ensure_bitable_schema,
     )
     from mcp_memory.feishu.runner import LarkCliRunner
     from mcp_memory.config import Config
@@ -574,6 +520,7 @@ def _cmd_schema(args: argparse.Namespace) -> int:
         return 1
 
     runner = LarkCliRunner()
+    scope = "memory"  # default; could be made a flag later
     app_token = cfg.memory_bitable_app_token
     table_id = cfg.memory_bitable_table_id
 

@@ -40,11 +40,7 @@ class Config(BaseSettings):
     data_dir: Path = Path("./.feishu_memory")
 
     # 模型
-    # Default = small fast model (~80MB, 30s first download) so the project
-    # is runnable without HF_TOKEN. For production / best quality, set
-    # EMBEDDING_MODEL=BAAI/bge-m3 (multilingual, 1024-dim, ~2.3GB).
-    # See README "Embedding model selection" for the full list of recommendations.
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "BAAI/bge-m3"
     reranker_model: str = "BAAI/bge-reranker-base"
     device: Literal["cpu", "cuda", "mps"] = "cpu"
 

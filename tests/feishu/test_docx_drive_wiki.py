@@ -4,8 +4,9 @@ After the lark-cli migration, these clients take a LarkCliRunner instead of a
 lark.Client. The tests verify basic init and that the lark-cli command shape is
 correct under the v2 protocol.
 """
+import json
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from mcp_memory.feishu.docx import DocxClient
 from mcp_memory.feishu.drive import DriveClient
 from mcp_memory.feishu.wiki import WikiClient

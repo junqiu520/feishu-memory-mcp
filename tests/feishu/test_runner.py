@@ -1,4 +1,5 @@
 import json
+import subprocess
 import pytest
 from unittest.mock import patch, MagicMock
 from mcp_memory.feishu.runner import (

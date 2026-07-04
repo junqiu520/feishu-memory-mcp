@@ -2,7 +2,7 @@
 
 These tests validate that:
   * AppContext routes scope names to the correct service bundle.
-  * make_server builds a FastMCP instance with all 8 tools registered.
+  * make_server builds a FastMCP instance with all 9 tools registered.
   * The default scope is "memory".
   * The AppContext name-validation rejects bad scopes.
   * memory_list returns full record summaries sorted by updated_at desc.
@@ -133,6 +133,7 @@ EXPECTED_TOOLS = {
     "memory_list",
     "memory_count",
     "memory_sync",
+    "file_upload",
 }
 
 
@@ -166,8 +167,8 @@ async def test_make_server_returns_fastmcp(ctx):
     assert isinstance(server, FastMCP)
 
 
-async def test_make_server_registers_all_eight_tools(mcp):
-    """FastMCP must have all 8 tool wrappers registered."""
+async def test_make_server_registers_all_nine_tools(mcp):
+    """FastMCP must have all 9 tool wrappers registered."""
     tools = await mcp.list_tools()
     tool_names = {t.name for t in tools}
     assert EXPECTED_TOOLS.issubset(tool_names), f"missing tools: {EXPECTED_TOOLS - tool_names}"

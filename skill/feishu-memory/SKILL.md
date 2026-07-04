@@ -1,86 +1,80 @@
 ---
 name: feishu-memory
-description: "Use when persisting knowledge across sessions, searching prior context, or syncing with Feishu storage. Calls the feishu-memory-mcp tools for shared agent memory."
+description: "用于跨会话持久化知识、搜索历史上下文、与飞书存储同步时使用。调用 feishu-memory-mcp 工具来访问共享的 agent 记忆。"
 ---
 
-# feishu-memory MCP skill
+# feishu-memory MCP 技能
 
-You have access to a shared RAG memory via `feishu-memory-mcp`. Use it for
-cross-session persistence — when a user asks you to "remember this", or you
-identify reusable knowledge, or you need to look up past context.
+你可以通过 `feishu-memory-mcp` 访问一个共享的 RAG 记忆库。用于跨会话持久化——当用户要求你"记住这个"，或者你识别出可复用的知识，或者你需要查找过去的上下文时使用。
 
-## When to use
+## 何时使用
 
-| User says                                            | Tool                                                   |
-|------------------------------------------------------|--------------------------------------------------------|
-| "记住 / 帮我保存这条 / 收藏这段对话"                  | `memory_add`                                           |
-| "我之前讲过 X 吗 / 找那条关于 Y 的记忆"              | `memory_query`                                         |
-| "展开看那条 / 给我完整内容"                          | `memory_get` (must have `record_id` first)              |
-| "改一下标签 / 改标题"                                | `memory_update`                                        |
-| "忘掉这条 / 删除"                                    | `memory_delete` (with `confirm: true`)                 |
-| "列出我有哪些 X"                                     | `memory_list` or `memory_count`                        |
-| "同步一下 / 拉取最新"                                | `memory_sync`                                          |
+| 用户说 | 工具 |
+|--------|------|
+| "记住这个偏好 / 存这条经验 / 记录这个教训" | `memory_add(scope="memory")` |
+| "帮我存这份规范 / 把这份文档存到知识库" | `memory_add(scope="knowledge")` |
+| "我之前讲过 X 吗 / 找那条关于 Y 的记忆" | `memory_query` |
+| "展开看那条 / 给我完整内容" | `memory_get`（需要先有 `record_id`）|
+| "改一下标签 / 改标题" | `memory_update` |
+| "忘掉这条 / 删除" | `memory_delete`（需要 `confirm: true`）|
+| "列出我有哪些 X" | `memory_list` 或 `memory_count` |
+| "同步一下 / 拉取最新" | `memory_sync` |
+| "把这个 PDF 上传到飞书 / 把这个文件存档" | `file_upload` |
 
-## Scope choice
+## Scope 选择
 
-- `memory` (default): your own shared memory across agents. Use for notes,
-  conversation, agent-generated content.
-- `knowledge`: the owner's curated knowledge base. Use when the user is
-  feeding you reference material they want indexed.
-- Don't know? Start with `memory`.
+- `memory`（默认）：存储可复用的经验、用户的偏好/教训、事件里程碑等。
+  不要用于：临时上下文（对话中直接保留）、系统指令（不是记忆）。
+- `knowledge`：存储用户的材料/文件（规范、文档、笔记等），但需要你先解析附件内容为文本。
+  file_ref 需要先调用 file_upload 工具获取 file token + URL。
+- 不确定？先用 `memory`。
 
-## Query mode choice
+## 查询模式选择
 
-| Query intent                                          | `mode`                |
-|-------------------------------------------------------|-----------------------|
-| Default; mixed intent; need best results              | `"hybrid_rerank"`     |
-| Exact name / date / ID / acronym                      | `"bm25_only"`         |
-| Abstract concept / similar phrasing                   | `"vector_only"`       |
-| Want to skip reranker for speed                       | `"hybrid"`            |
+| 查询意图 | `mode` |
+|----------|--------|
+| 默认；混合意图；需要最佳结果 | `"hybrid_rerank"` |
+| 精确匹配名称/日期/ID/缩写 | `"bm25_only"` |
+| 抽象概念/相似表述 | `"vector_only"` |
+| 想跳过重排以加速 | `"hybrid"` |
 
-Reranking takes extra time and a tiny amount of CPU but materially improves
-quality on long, ambiguous queries. Default to `"hybrid_rerank"` unless
-you're optimizing for latency.
+重排会花费额外时间和少量 CPU，但能显著提升长查询的质量。除非优化延迟，否则默认使用 `"hybrid_rerank"`。
 
-## Filename / file uploads
+## 文件上传
 
-Files (PDF / PPT / images) cannot be embedded directly. To add a file's content:
+文件（PDF/PPT/图片）不能直接嵌入。添加文件内容的步骤：
 
-1. First upload to Feishu Drive: `lark-cli drive +upload /path/to/file.pdf`
-2. Get back file token + URL from lark-cli output
-3. Use your native file-reading capability (Claude/GPT-4o vision, etc.) to
-   convert the file to text
-4. Call `memory_add(text=<converted_text>, file_ref={type: "drive_file", token, url})`
+1. 通过 MCP 工具上传到飞书云盘：
+   `file_upload(file_paths=["/path/to/file.pdf"])`。传入一个列表可以一次上传多个文件。
+   每条路径返回自己的状态条目；单个失败不会中止其他文件。
+2. 从响应中获取每个成功上传的 `file_token` 和 `url`。
+3. 使用你的原生文件读取能力（Claude/GPT-4o vision 等）将每个文件转换为文本。
+4. 对每个文件调用 `memory_add(text=<转换后的文本>, file_ref={type: "drive_file", token, url})`。
 
-The `file_ref` is metadata that lets the user click through to the original
-in Feishu; the searchable body is the `text` you pass.
+`file_ref` 是元数据，让用户可以点击跳转到飞书中的原文档；可搜索的内容是你传入的 `text`。
 
-## Sync
+## 同步
 
-If results look stale — for example, the user said "I added that yesterday"
-but you can't find it — call:
+如果搜索结果看起来过时——比如用户说"我昨天加过那个"但你找不到——调用：
 
 ```
 memory_sync(mode="incremental")
 ```
 
-Don't call `memory_sync(mode="rebuild")` unless the user reports cache
-corruption; `rebuild` re-embeds everything and is slow.
+不要调用 `memory_sync(mode="rebuild")`，除非用户报告缓存损坏；`rebuild` 会重新嵌入所有内容，很慢。
 
-## Don't use
+## 不要使用的情况
 
-- For session-only context — just keep it in conversation.
-- For system prompts / instructions — these are not memories.
-- For data the user explicitly says "don't remember".
+- 会话内临时上下文——直接在对话中保留就好
+- 系统提示/指令——这些不是记忆
+- 用户明确说"不要记住"的数据
 
-## Cross-scope search
+## 跨 scope 搜索
 
-Searching one scope does NOT search the other. To search both:
+搜索一个 scope 不会自动搜索另一个。要搜索两个库：
 
-1. Call `memory_query(scope="memory", ...)`
-2. Call `memory_query(scope="knowledge", ...)`
-3. Merge the results.
+1. 调用 `memory_query(scope="memory", ...)`
+2. 调用 `memory_query(scope="knowledge", ...)`
+3. 合并结果
 
-There is intentionally no `scope="both"` for the MCP tool — the CLI's
-`feishu-memory sync --scope both` exists for ops, but per-query the agent
-decides which library to query.
+MCP 工具故意没有 `scope="both"` 参数——CLI 的 `feishu-memory sync --scope both` 用于运维，但每次查询时 agent 决定查询哪个库。

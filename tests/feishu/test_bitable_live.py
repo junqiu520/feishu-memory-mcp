@@ -9,15 +9,17 @@ To run manually:
 This validates the full BitableClient + lark-cli v2 protocol against a real
 Feishu tenant. It was used during the v1->v2 migration and subsequent bug fixes.
 """
+import asyncio
 import os
 import uuid
 
 import pytest
 from dotenv import load_dotenv
-from mcp_memory.feishu.bitable import BitableClient
-from mcp_memory.feishu.runner import LarkCliRunner
 
 load_dotenv('.env')
+
+from mcp_memory.feishu.runner import LarkCliRunner
+from mcp_memory.feishu.bitable import BitableClient
 
 pytestmark = pytest.mark.live
 

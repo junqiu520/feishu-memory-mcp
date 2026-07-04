@@ -1,36 +1,22 @@
 # feishu-memory-mcp
 
-> **飞书驱动的 RAG 记忆库 MCP server。** Agent 长期记忆 + 个人知识库，两者都存飞书多维表格，通过同一套 Model Context Protocol 接口可检索。
+> MCP server for Feishu-backed RAG memory. Persistent agent memory and a
+> personal knowledge library, both stored in Feishu Bitable, both
+> searchable through a single Model Context Protocol surface.
 
-[![CI](https://github.com/junqiu/feishu-memory-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/junqiu/feishu-memory-mcp/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-
-## 这是什么
-
-`feishu-memory-mcp` 把 **飞书（Lark / Feishu）** 当成持久化后端，
-给 LLM agent 提供两套隔离但统一的记忆服务：
-
-| Scope | 用途 | 谁来写 | 谁来读 |
-|-------|------|--------|--------|
-| **`memory`** | agent 的长期记忆（对话片段、agent 自动 add 的内容、解析后的资料）| **agent** | 全部 agent + 你 |
-| **`knowledge`** | 你的个人知识库（笔记、规范、文档）| **你**（或 lark-ui 录入）| agent 可消费 |
-
-两库都用飞书多维表格做持久化 + 本地 SQLite + LanceDB 做查询缓存，agent 通过 8 个 MCP 工具读写。
-
-## 5 分钟跑起来
+## 5-minute quick start
 
 ```bash
-# 1. 装 Python 包
+# 1. Install the Python package
 pip install feishu-memory-mcp
 
-# 2. 装系统依赖（自动检测 Node.js / npm 然后 npm install -g @larksuite/cli）
+# 2. Install the lark-cli system dependency (Node.js >= 18, then lark-cli)
 feishu-memory install-deps
 
-# 3. lark-cli OAuth 授权（会打开浏览器）
+# 3. Authorize lark-cli with your Feishu app
 lark-cli config init
 
-# 4. 配环境变量
+# 4. Set required env vars (see Configuration below)
 export FEISHU_APP_ID=cli_xxxxxxxxxxxx
 export FEISHU_APP_SECRET=...
 export MEMORY_BITABLE_APP_TOKEN=bascnxxxxxxxxxxxx
@@ -38,146 +24,127 @@ export MEMORY_BITABLE_TABLE_ID=tblxxxxxxxxxxxxxxxx
 export KNOWLEDGE_BITABLE_APP_TOKEN=bascnyyyyyyyyyyyy
 export KNOWLEDGE_BITABLE_TABLE_ID=tblyyyyyyyyyyyyy
 
-# 5. 验证
-feishu-memory doctor   # 6/6 检查过
-feishu-memory sync     # 第一次拉飞书 Bitable 数据
-feishu-memory serve    # 启动 MCP server（agent 客户端连）
+# 5. Verify the install
+feishu-memory doctor
+
+# 6. Run the MCP server
+feishu-memory serve
 ```
 
-第 4 步需要你在飞书 UI 提前创建 2 个多维表格（每个 16 字段），详细字段表见 [docs/deployment.md](docs/deployment.md)。
+Point your MCP client (Claude Desktop, Cursor, etc.) at
+`feishu-memory serve`. See [docs/installation.md](docs/installation.md)
+for platform-specific notes and troubleshooting.
 
-## 给 agent 用：8 个 MCP 工具
+## What this gives you
 
-把这段加到 agent 客户端的 mcp 配置（Claude Desktop / Cursor / Codex / etc）：
+- **Two isolated Bitable-backed scopes**:
+  - **memory** — write-once, append-only entries keyed to a specific
+    agent (the agent's persistent scratchpad).
+  - **knowledge** — your personal knowledge library, readable and
+    writable by humans and agents alike.
+- **Hybrid retrieval**: FTS5 keyword search over the local SQLite cache,
+  vector similarity over a local LanceDB index, fused with reciprocal
+  rank fusion (RRF) and reranked with BAAI/bge-reranker-base.
+- **Local-first**: every operation goes through a SQLite + LanceDB
+  cache so the server responds fast even on flaky networks. A sync
+  command reconciles the cache with Feishu.
 
-```json
-{
-  "mcpServers": {
-    "feishu-memory": {
-      "command": "feishu-memory",
-      "args": ["serve"],
-      "env": { "FEISHU_APP_ID": "...", "...": "..." }
-    }
-  }
-}
-```
+## CLI
 
-启动后 agent 看到这 8 个 tool：
+`feishu-memory` ships a single-binary CLI for every operational task:
 
-| Tool | 用途 | Scope |
-|------|------|-------|
-| `memory_add` | 写一条记忆（agent 自己加，或保存对话） | memory / knowledge |
-| `memory_query` | 检索（4 种 mode：hybrid_rerank / hybrid / bm25 / vector） | memory / knowledge |
-| `memory_get` | 取一条完整内容 | memory / knowledge |
-| `memory_update` | 改一条的元数据（标题/标签） | memory / knowledge |
-| `memory_delete` | 删除一条 | memory / knowledge |
-| `memory_list` | 列表（带分页 + 排序） | memory / knowledge |
-| `memory_count` | 计数 | memory / knowledge |
-| `memory_sync` | 触发与飞书的同步（3 种 mode：incremental / full / rebuild） | memory / knowledge |
+| Subcommand      | Purpose                                              |
+|-----------------|------------------------------------------------------|
+| `install-deps`  | Detect Node.js / npm and install lark-cli globally.  |
+| `init`          | Print the env-var template for first-time setup.     |
+| `serve`         | Start the MCP server (stdio transport).              |
+| `doctor`        | Diagnose Node, npm, lark-cli, config, and cache.     |
+| `sync`          | Reconcile the local cache with Feishu Bitables.      |
+| `status`        | Show local cache + sync state.                       |
+| `schema`        | Dump / verify the Bitable schema.                    |
+| `migrate`       | Rebuild the Bitable schema (upgrade).                |
+| `version`       | Print version and exit.                              |
 
-每个 tool 接受 `scope` 参数（`memory` / `knowledge`）。`memory_query` 还有 4 种 mode 选：
-- `hybrid_rerank`（默认）：BM25 + 向量 + RRF + 重排
-- `hybrid`：BM25 + 向量 + RRF（不要重排，更快）
-- `bm25_only`：纯关键词
-- `vector_only`：纯语义
+Every subcommand supports `--help`. The CLI is documented as the
+primary interface for ops — agents should prefer the MCP tools.
 
-详细 tool 文档：[docs/tool-reference.md](docs/tool-reference.md)
+## MCP tools
 
-## 命令行（CLI 运维）
+The server exposes **9 MCP tools** for agent use:
 
-`feishu-memory` 是个 single-binary CLI，每个子命令独立：
+| Tool          | Purpose                                              | Scope           |
+|---------------|------------------------------------------------------|-----------------|
+| `mem_add`     | Add a memory entry to the agent's memory scope.      | memory / knowledge |
+| `mem_list`    | List recent memory entries for the agent.            | memory / knowledge |
+| `mem_search`  | Hybrid-search over the agent's memory scope.         | memory / knowledge |
+| `mem_delete`  | Delete a memory entry (memory scope only).           | memory / knowledge |
+| `kno_search`  | Hybrid-search over the knowledge library.            | memory / knowledge |
+| `kno_upsert`  | Insert or update a knowledge entry.                  | memory / knowledge |
+| `sync_run`    | Trigger a sync against one or both Bitables.         | memory / knowledge |
+| `sync_status` | Report the last sync timestamp + per-scope counts.   | memory / knowledge |
+| `file_upload` | Upload local files to Feishu Drive; returns `file_token` + `url` for use as `mem_add.file_ref`. | — |
 
-| 子命令 | 作用 |
-|--------|------|
-| `init` | 打印首次安装的环境变量模板 |
-| `install-deps` | 检测 Node.js / npm 并装 lark-cli |
-| `serve` | 启动 MCP server（stdio 传输）|
-| `doctor` | 诊断 Node / npm / lark-cli / config / cache 状态 |
-| `sync` | 手动触发与飞书的同步 |
-| `status` | 看本地 cache 状态（记录数、最后 sync 时间、vector index 大小）|
-| `schema` | 导出 / 验证 Bitable 字段定义 vs spec |
-| `migrate` | 重建本地 cache（model 切换后 / cache 损坏）|
-| `version` | 打印版本号 |
+Full request / response schemas live in
+[docs/tool-reference.md](docs/tool-reference.md) (placeholder — see
+`src/mcp_memory/server.py` for the canonical tool decorators).
 
-每个子命令都支持 `--help`。
+## Configuration
 
-## 架构一览
+All configuration flows through environment variables (loaded by
+Pydantic Settings). Required:
 
-```
-[agent client]  ←stdio/MCP→  [feishu-memory-mcp]  ←subprocess→  [lark-cli]  ←HTTPS→  [飞书]
-   • 8 tools      │              │ Service Layer         │              │       • Bitable
-   • stdin/stdout│              │ • MemoryService       │              │       • Docx
-                 │              │ • SearchService       │              │       • Drive
-                 │              │ • SyncService         │              │
-                 │              │                       │              │
-                 │              ├─ Index Engine         │              │
-                 │              │ • EmbeddingEngine     │              │
-                 │              │   (bge-m3 / MiniLM)   │              │
-                 │              │ • TextChunker         │              │
-                 │              │ • Reranker            │              │
-                 │              │ • RRFMerger           │              │
-                 │              │                       │              │
-                 │              └─ Local Storage        │              │
-                 │                 • SQLite (FTS5)       │              │
-                 │                 • LanceDB (vectors)   │              │
-                 │                                                  │
-                 └─ Skill file: skill/feishu-memory/SKILL.md
-```
+| Variable                       | Purpose                                                |
+|--------------------------------|--------------------------------------------------------|
+| `FEISHU_APP_ID`                | Feishu app id (`cli_xxx…`).                            |
+| `FEISHU_APP_SECRET`            | Feishu app secret.                                     |
+| `MEMORY_BITABLE_APP_TOKEN`     | App token of the agent-memory Bitable.                 |
+| `MEMORY_BITABLE_TABLE_ID`      | Table id inside that Bitable.                          |
+| `KNOWLEDGE_BITABLE_APP_TOKEN`  | App token of the personal-knowledge Bitable.           |
+| `KNOWLEDGE_BITABLE_TABLE_ID`   | Table id inside that Bitable.                          |
 
-详细架构：[docs/architecture.md](docs/architecture.md)
+Optional (with defaults):
 
-## Embedding 模型选择
+| Variable                       | Default                | Purpose                                  |
+|--------------------------------|------------------------|------------------------------------------|
+| `FEISHU_MEMORY_AGENT_ID`       | `default`              | Identifies this agent's memory scope.    |
+| `FEISHU_MEMORY_DATA_DIR`       | `./.feishu_memory`     | Local cache + index location.            |
+| `FEISHU_MEMORY_DEVICE`         | `cpu`                  | `cpu` / `cuda` / `mps` for embeddings.   |
+| `FEISHU_MEMORY_AUTO_SYNC`      | `true`                 | Sync on server startup.                  |
+| `FEISHU_MEMORY_AUTO_SCOPE`     | `memory`               | Which scope to auto-sync.                |
+| `LARK_CLI_PATH`                | (PATH lookup)          | Override lark-cli binary location.       |
 
-`feishu-memory-mcp` 用 [sentence-transformers](https://www.sbert.net)
-做 embedding。**默认**用最小最快的 `all-MiniLM-L6-v2`（80MB / 30秒下载 /
-不需要 HF_TOKEN），所以任何机器装上就能跑。生产环境中文/多语种可换更大的：
+## Architecture
 
-| Model | 大小 | 维度 | 何时用 |
-|-------|------|------|-------|
-| `sentence-transformers/all-MiniLM-L6-v2` *(默认)* | 80MB | 384 | 无 token 快速启动 |
-| `BAAI/bge-small-en-v1.5` | 33MB | 384 | 极简英文 |
-| **`BAAI/bge-m3`** | 2.3GB | 1024 | **中文/多语种推荐** |
-| `BAAI/bge-large-en-v1.5` | 1.3GB | 1024 | 纯英文高质量 |
-| `intfloat/multilingual-e5-base` | 1GB | 768 | 中英文平衡 |
+Quick summary:
 
-切换：`.env` 里改 `EMBEDDING_MODEL` 然后重启 + 跑 `feishu-memory migrate`（不同 model 维度不同）。
+- **CLI** (`feishu_memory/cli.py`) — ops surface (install-deps, doctor,
+  sync, …). Built on stdlib `argparse`, no extra deps.
+- **MCP server** (`feishu_memory/server.py`) — FastMCP, 9 tools.
+- **Services** (`src/mcp_memory/services/`) — domain logic (Memory,
+  Search, Sync, Bootstrap). Wired to the feishu clients via
+  dependency injection.
+- **Feishu clients** (`src/mcp_memory/feishu/`) — thin subprocess
+  wrappers around `lark-cli`. We dropped the Python `lark-oapi` SDK
+  in favor of the CLI so we get OAuth + retries from a single
+  cross-language surface.
+- **Local cache** (`src/mcp_memory/storage/`) — SQLite (FTS5) +
+  LanceDB. All retrieval reads from here; sync reconciles outward.
 
-加速下载：免费申请 HF_TOKEN <https://huggingface.co/settings/tokens>，5-10x 加速。
+For a deeper dive, see [docs/architecture.md](docs/architecture.md)
+(placeholder — see `src/mcp_memory/server.py` and the service layer).
 
-## 项目特点
-
-- **飞书是唯一权威源** — 本地 cache 可任意删，`feishu-memory migrate` 一键从飞书恢复
-- **多 agent 共享同一记忆库** — `source_agent` 字段标记来源，不同 agent 共享同一张 Bitable
-- **可重建 vector index** — 切换 embedding model 后 `migrate` 重建 LanceDB
-- **失败容忍** — 飞书写失败不阻塞本地写，下次 sync 自动重试
-- **CLI 优先** — 9 个子命令覆盖所有运维场景，不需要查 SQL / 直接读 Bitable
-- **零额外 Node 包** — `lark-cli` 是 npm 全局唯一依赖；Python 端纯 `lancedb` + `sentence-transformers` + SQLite
-- **OS 跨平台** — Windows / macOS / Linux 全部 CI 测过
-- **真实环境验证** — 27 个 commit + 24 个 BUG 修复都是用真实飞书 Bitable 跑出来的
-
-## 文档索引
-
-- [docs/deployment.md](docs/deployment.md) — 11 步详细部署指南
-- [docs/installation.md](docs/installation.md) — 安装 + 飞书后台 + 模型选择
-- [docs/architecture.md](docs/architecture.md) — 架构详解
-- [docs/operations.md](docs/operations.md) — sync 策略 + 运维 + 故障排查
-- [docs/tool-reference.md](docs/tool-reference.md) — 8 个 tool 完整入参出参
-- [CHANGELOG.md](CHANGELOG.md) — 0.1.0 release notes
-- [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南
-- [skill/feishu-memory/SKILL.md](skill/feishu-memory/SKILL.md) — agent 自动加载的 skill
-
-## 开发
+## Development
 
 ```bash
-git clone https://github.com/junqiu/feishu-memory-mcp
+git clone https://github.com/your-org/feishu-memory-mcp
 cd feishu-memory-mcp
 pip install -e ".[dev]"
-pytest                 # 跑全部 unit tests（205 个）
+pytest                 # full suite
+pytest tests/test_setup.py  # just the install-deps tests
 ruff check src tests
+mypy src
 ```
 
-CI：push 即跑（Python 3.11/3.12/3.13，Ubuntu latest）。
+## License
 
-## 许可
-
-MIT.
+MIT. See `LICENSE` (TBD).
