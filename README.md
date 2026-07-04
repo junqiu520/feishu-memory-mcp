@@ -110,6 +110,8 @@ feishu-memory serve    # 启动 MCP server（agent 客户端连）
     • stdin/stdout│              │ • MemoryService       │              │       • Docx
                   │              │ • SearchService       │              │       • Drive
                   │              │ • SyncService         │              │
+                  │              │ • BootstrapService    │              │
+                  │              │   (冷启动初始化)        │              │
                   │              │                       │              │
                   │              ├─ Index Engine         │              │
                   │              │ • EmbeddingEngine     │              │
