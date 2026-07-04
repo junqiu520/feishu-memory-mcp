@@ -39,7 +39,7 @@ jobs:
       - name: Install system deps (lark-cli requires Node.js 18+)
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install lark-cli (skipped for unit tests; some imports check `lark-cli` is on PATH)
         run: |
